@@ -117,24 +117,6 @@ if uploaded_file:
         # Filtrar dados no intervalo selecionado
         df_filtered = df[(time_column >= min_time) & (time_column <= max_time)]
 
-        # Mostrar gráfico com Power, SmO2 e HR antes do filtro
-        st.write("### Gráfico Antes do Filtro")
-        fig = go.Figure()
-        if "Power" in column_map:
-            fig.add_trace(go.Scatter(x=time_column, y=df_filtered[column_map["Power"]], mode='lines', name="Power"))
-        if "SmO2" in column_map:
-            fig.add_trace(go.Scatter(x=time_column, y=df_filtered[column_map["SmO2"]], mode='lines', name="SmO2"))
-        if "HR" in column_map:
-            fig.add_trace(go.Scatter(x=time_column, y=df_filtered[column_map["HR"]], mode='lines', name="HR"))
-
-        # Configurações do gráfico
-        fig.update_layout(
-            xaxis=dict(title="Tempo (segundos)"),
-            title="Gráfico Antes do Filtro",
-            legend=dict(orientation="h")
-        )
-        st.plotly_chart(fig)
-
         # Aplicar Filtros
         st.write("### Aplicar Filtros")
         default_cutoff = {"SmO2": 0.1, "THb": 0.2, "Power": 0.1, "HR": 0.1}
@@ -146,18 +128,69 @@ if uploaded_file:
                 filtered_columns[col_key] = f"{col_name}_filtered"
                 st.write(f"Filtro Butterworth aplicado em **{col_name}** (Frequência de corte: {cutoff} Hz).")
 
-        # Gráficos Pós-Filtro
-        st.write("### Visualizar Gráficos Pós-Filtro")
-        selected_col = st.selectbox("Selecione uma coluna para visualizar:", filtered_columns.keys())
-        if selected_col:
-            filtered_col_name = filtered_columns[selected_col]
-            fig_filtered = go.Figure()
-            fig_filtered.add_trace(go.Scatter(x=time_column, y=df_filtered[column_map[selected_col]], mode='lines', name="Original"))
-            fig_filtered.add_trace(go.Scatter(x=time_column, y=df_filtered[filtered_col_name], mode='lines', name="Filtrado"))
-            fig_filtered.update_layout(title=f"Gráfico de {selected_col} Pós-Filtro")
-            st.plotly_chart(fig_filtered)
+        # Configurar Steps
+        st.write("### Configurar Steps de Trabalho e Descanso")
+        work_time = st.text_input("Tempo de Trabalho (mm:ss):", "02:00")
+        rest_time = st.text_input("Tempo de Descanso (mm:ss):", "01:00")
 
-        # Download dos dados processados
+        def time_to_seconds(time_str):
+            try:
+                minutes, seconds = map(int, time_str.split(":"))
+                return minutes * 60 + seconds
+            except ValueError:
+                st.error("Formato inválido! Use mm:ss")
+                return None
+
+        work_seconds = time_to_seconds(work_time)
+        rest_seconds = time_to_seconds(rest_time)
+
+        if work_seconds and rest_seconds:
+            steps = []
+            current_time = min_time
+            step_counter = 1
+            while current_time < max_time:
+                work_end = min(current_time + work_seconds, max_time)
+                steps.append({"Step": step_counter, "Type": "Trabalho", "Start": current_time, "End": work_end})
+                current_time = work_end
+                step_counter += 1
+
+                rest_end = min(current_time + rest_seconds, max_time)
+                if current_time < max_time:
+                    steps.append({"Step": step_counter, "Type": "Descanso", "Start": current_time, "End": rest_end})
+                    current_time = rest_end
+                    step_counter += 1
+
+            st.write("### Tabela de Steps")
+            steps_df = pd.DataFrame(steps)
+            st.dataframe(steps_df)
+
+            st.write("### Gráfico com Steps de Trabalho e Descanso")
+            fig_steps = go.Figure()
+            if "Power" in filtered_columns:
+                fig_steps.add_trace(go.Scatter(x=time_column, y=df_filtered[filtered_columns["Power"]], mode='lines', name="Power"))
+            if "SmO2" in filtered_columns:
+                fig_steps.add_trace(go.Scatter(x=time_column, y=df_filtered[filtered_columns["SmO2"]], mode='lines', name="SmO2"))
+            if "HR" in filtered_columns:
+                fig_steps.add_trace(go.Scatter(x=time_column, y=df_filtered[filtered_columns["HR"]], mode='lines', name="HR"))
+            
+            for step in steps:
+                fig_steps.add_vrect(
+                    x0=step["Start"], x1=step["End"],
+                    fillcolor="green" if step["Type"] == "Trabalho" else "red",
+                    opacity=0.3,
+                    layer="below",
+                    line_width=0,
+                    annotation_text=step["Type"],
+                    annotation_position="top left"
+                )
+
+            fig_steps.update_layout(
+                xaxis=dict(title="Tempo (segundos)"),
+                title="Gráfico com Steps de Trabalho e Descanso",
+                legend=dict(orientation="h")
+            )
+            st.plotly_chart(fig_steps)
+
         st.write("### Baixar Dados Processados")
         csv = df_filtered.to_csv(index=False).encode('utf-8')
         st.download_button("Baixar CSV Filtrado", data=csv, file_name="dados_filtrados.csv", mime="text/csv")
