@@ -1,2 +1,9 @@
 streamlit
+pandas
+numpy
 scipy
+matplotlib
+json5
+fitparse
+sqlite3
+plotly
