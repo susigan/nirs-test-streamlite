@@ -81,61 +81,66 @@ if uploaded_file:
         st.write("### Selecione o Intervalo de Tempo para Análise")
 
         # Procurar colunas que começam com "time" ou "timestamp"
-        time_columns = [col for col in df.columns if "time" in col.lower() or "timestamp" in col.lower()]
+time_columns = [col for col in df.columns if "time" in col.lower() or "timestamp" in col.lower()]
 
-        if not time_columns:
-            st.error("Nenhuma coluna com o nome 'time' ou 'timestamp' foi encontrada.")
+if not time_columns:
+    st.error("Nenhuma coluna com o nome 'time' ou 'timestamp' foi encontrada.")
+    st.stop()
+else:
+    # Priorizar "timestamp" se disponível
+    if "timestamp" in [col.lower() for col in time_columns]:
+        time_column_name = next(col for col in time_columns if col.lower() == "timestamp")
+    else:
+        time_column_name = time_columns[0]  # Usar a primeira coluna detectada
+    
+    time_column = df[time_column_name]
+    st.write(f"Coluna de tempo detectada: **{time_column_name}**")
+    
+    # Verificar se a coluna contém data e hora combinadas
+    if pd.api.types.is_string_dtype(time_column):
+        try:
+            # Converter strings de data e hora para objetos datetime
+            time_column = pd.to_datetime(time_column)
+            # Extrair apenas o tempo em segundos
+            time_column = time_column.dt.hour * 3600 + time_column.dt.minute * 60 + time_column.dt.second
+            st.success(f"Coluna de tempo processada e convertida para segundos.")
+        except Exception as e:
+            st.error(f"Erro ao processar a coluna de tempo: {e}")
             st.stop()
-        else:
-            # Usar automaticamente a primeira coluna encontrada
-            time_column_name = time_columns[0]
-            time_column = df[time_column_name]
-            st.write(f"Coluna de tempo detectada: **{time_column_name}**")
-            
-            # Verificar se a coluna contém data e hora combinadas
-            if pd.api.types.is_string_dtype(time_column):
-                try:
-                    # Converter strings de data e hora para objetos datetime
-                    time_column = pd.to_datetime(time_column)
-                    # Extrair apenas o tempo em segundos
-                    time_column = time_column.dt.hour * 3600 + time_column.dt.minute * 60 + time_column.dt.second
-                    st.success(f"Coluna de tempo processada e convertida para segundos.")
-                except Exception as e:
-                    st.error(f"Erro ao processar a coluna de tempo: {e}")
-                    st.stop()
-            elif not pd.api.types.is_numeric_dtype(time_column):
-                st.error("A coluna selecionada para o tempo não é numérica nem uma string válida de data e hora.")
-                st.stop()
+    elif not pd.api.types.is_numeric_dtype(time_column):
+        st.error("A coluna selecionada para o tempo não é numérica nem uma string válida de data e hora.")
+        st.stop()
 
-        # Criar o slider de tempo com valores mínimos e máximos válidos
-        min_time, max_time = st.slider(
-            "Intervalo de Tempo",
-            min_value=int(time_column.min()),
-            max_value=int(time_column.max()),
-            value=(int(time_column.min()), int(time_column.max()))
-        )
+    # Criar o slider de tempo com valores mínimos e máximos válidos
+    min_time, max_time = st.slider(
+        "Intervalo de Tempo",
+        min_value=int(time_column.min()),
+        max_value=int(time_column.max()),
+        value=(int(time_column.min()), int(time_column.max()))
+    )
 
-        # Filtrar os dados com base no intervalo selecionado
-        df_filtered = df[(time_column >= min_time) & (time_column <= max_time)]
+    # Filtrar os dados com base no intervalo selecionado
+    df_filtered = df[(time_column >= min_time) & (time_column <= max_time)]
 
-        # Mostrar gráfico com colunas selecionadas antes do filtro
-        st.write("### Gráfico Antes do Filtro")
-        available_columns = df.columns.tolist()
-        selected_columns = st.multiselect(
-            "Escolha as colunas para incluir no gráfico:",
-            available_columns,
-            default=list(column_map.values())
-        )
-        fig = go.Figure()
-        for col in selected_columns:
-            fig.add_trace(go.Scatter(x=time_column, y=df_filtered[col], mode='lines', name=col))
-        
-        fig.update_layout(
-            xaxis=dict(title="Tempo"),
-            title="Gráfico Antes do Filtro",
-            legend=dict(orientation="h")
-        )
-        st.plotly_chart(fig)
+    # Mostrar gráfico com colunas selecionadas antes do filtro
+    st.write("### Gráfico Antes do Filtro")
+    available_columns = df.columns.tolist()
+    selected_columns = st.multiselect(
+        "Escolha as colunas para incluir no gráfico:",
+        available_columns,
+        default=list(column_map.values())
+    )
+    fig = go.Figure()
+    for col in selected_columns:
+        fig.add_trace(go.Scatter(x=time_column, y=df_filtered[col], mode='lines', name=col))
+    
+    fig.update_layout(
+        xaxis=dict(title="Tempo"),
+        title="Gráfico Antes do Filtro",
+        legend=dict(orientation="h")
+    )
+    st.plotly_chart(fig)
+)
 
         # Aplicar Filtros
         st.write("### Aplicar Filtros")
