@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 from scipy.signal import butter, filtfilt
 import fitdecode
-import plotly.express as px
+import plotly.graph_objects as go
 
 # Função para aplicar o filtro Butterworth
 def butterworth_filter(data, cutoff=0.1, fs=1.0, order=2):
@@ -61,48 +61,66 @@ if uploaded_file:
 
         # Detectar colunas automaticamente
         column_map = detect_columns(df)
-        st.write("### Colunas Selecionadas Automaticamente:")
+        st.write("### Colunas Detectadas:")
         st.write(column_map)
 
-        # Mostrar todas as colunas disponíveis
-        st.write("### Todas as Colunas Disponíveis:")
-        st.write(df.columns.tolist())
-
-        # Permitir ao usuário adicionar colunas extras
-        additional_columns = st.multiselect(
-            "Selecione mais colunas para filtrar:", 
-            df.columns.tolist(), 
-            default=list(column_map.values())
+        # Slider para selecionar intervalo de tempo
+        st.write("### Selecione o Intervalo de Tempo para Análise")
+        time_column = df.index if "time" not in df.columns else df["time"]
+        min_time, max_time = st.slider(
+            "Intervalo de Tempo",
+            min_value=int(time_column.min()),
+            max_value=int(time_column.max()),
+            value=(int(time_column.min()), int(time_column.max()))
         )
 
-        # Configurações padrão para filtros
-        st.write("### Filtros Automáticos")
+        # Filtrar dados no intervalo selecionado
+        df_filtered = df[(time_column >= min_time) & (time_column <= max_time)]
+
+        # Mostrar gráfico com Power, SmO2 e HR antes do filtro
+        st.write("### Gráfico Antes do Filtro")
+        fig = go.Figure()
+        if "Power" in column_map:
+            fig.add_trace(go.Scatter(x=df_filtered.index, y=df_filtered[column_map["Power"]], mode='lines', name="Power (Y1)", yaxis="y1"))
+        if "SmO2" in column_map:
+            fig.add_trace(go.Scatter(x=df_filtered.index, y=df_filtered[column_map["SmO2"]], mode='lines', name="SmO2 (Y2)", yaxis="y2"))
+        if "HR" in column_map:
+            fig.add_trace(go.Scatter(x=df_filtered.index, y=df_filtered[column_map["HR"]], mode='lines', name="HR (Y3)", yaxis="y3"))
+        
+        # Configurações dos eixos do gráfico
+        fig.update_layout(
+            xaxis=dict(title="Tempo"),
+            yaxis=dict(title="Power (Y1)", side="left"),
+            yaxis2=dict(title="SmO2 (Y2)", overlaying="y", side="right"),
+            yaxis3=dict(title="HR (Y3)", anchor="free", position=0.85),
+            title="Gráfico Antes do Filtro",
+            legend=dict(orientation="h")
+        )
+        st.plotly_chart(fig)
+
+        # Filtros
+        st.write("### Aplicar Filtros")
         default_cutoff = {"SmO2": 0.1, "THb": 0.2, "Power": 0.1, "HR": 0.1}
         filtered_columns = {}
-
-        for col_name in additional_columns:
-            cutoff = default_cutoff.get(col_name, 0.1)  # Frequência padrão para novas colunas
-            if col_name in df.columns:
-                filtered_col_name = f"{col_name}_filtered"
-                df[filtered_col_name] = butterworth_filter(df[col_name].interpolate(), cutoff=cutoff)
-                filtered_columns[col_name] = filtered_col_name
+        for col_key, cutoff in default_cutoff.items():
+            if col_key in column_map:
+                col_name = column_map[col_key]
+                df_filtered[f"{col_name}_filtered"] = butterworth_filter(df_filtered[col_name].interpolate(), cutoff=cutoff)
+                filtered_columns[col_key] = f"{col_name}_filtered"
                 st.write(f"Filtro Butterworth aplicado em **{col_name}** (Frequência de corte: {cutoff} Hz).")
 
-        # Gráficos interativos
-        st.write("### Visualizar Gráficos")
+        # Gráficos interativos pós-filtro
+        st.write("### Visualizar Gráficos Pós-Filtro")
         selected_col = st.selectbox("Selecione uma coluna para visualizar:", filtered_columns.keys())
         if selected_col:
             filtered_col_name = filtered_columns[selected_col]
-            fig = px.line(
-                df, 
-                x=df.index, 
-                y=[selected_col, filtered_col_name], 
-                labels={'value': 'Valores', 'index': 'Tempo'}, 
-                title=f"{selected_col} e {filtered_col_name}"
-            )
-            st.plotly_chart(fig)
+            fig_filtered = go.Figure()
+            fig_filtered.add_trace(go.Scatter(x=df_filtered.index, y=df_filtered[column_map[selected_col]], mode='lines', name="Original"))
+            fig_filtered.add_trace(go.Scatter(x=df_filtered.index, y=df_filtered[filtered_col_name], mode='lines', name="Filtrado"))
+            fig_filtered.update_layout(title=f"Gráfico de {selected_col} Pós-Filtro")
+            st.plotly_chart(fig_filtered)
 
         # Download dos dados processados
         st.write("### Baixar Dados Processados")
-        csv = df.to_csv(index=False).encode('utf-8')
+        csv = df_filtered.to_csv(index=False).encode('utf-8')
         st.download_button("Baixar CSV Filtrado", data=csv, file_name="dados_filtrados.csv", mime="text/csv")
