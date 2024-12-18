@@ -15,14 +15,27 @@ def butterworth_filter(data, cutoff=0.1, fs=1.0, order=2):
 # Função para carregar arquivo .fit ou .csv
 def load_file(file):
     if file.name.endswith('.csv'):
-        return pd.read_csv(file)
+        try:
+            return pd.read_csv(file)
+        except Exception as e:
+            st.error(f"Erro ao processar o arquivo .csv: {e}")
+            return None
     elif file.name.endswith('.fit'):
         data = []
-        with fitdecode.FitReader(file) as fitfile:
-            for frame in fitfile:
-                if isinstance(frame, fitdecode.records.FitDataMessage):
-                    data.append({field.name: field.value for field in frame.fields})
-        return pd.DataFrame(data)
+        try:
+            with fitdecode.FitReader(file) as fitfile:
+                for frame in fitfile:
+                    if isinstance(frame, fitdecode.records.FitDataMessage):  # Processar apenas mensagens de dados
+                        record = {field.name: field.value for field in frame.fields}
+                        data.append(record)
+            if data:
+                return pd.DataFrame(data)
+            else:
+                st.error("Nenhum dado encontrado no arquivo .fit.")
+                return None
+        except Exception as e:
+            st.error(f"Erro ao processar o arquivo .fit: {e}")
+            return None
     else:
         st.error("Formato de arquivo não suportado. Use '.csv' ou '.fit'.")
         return None
