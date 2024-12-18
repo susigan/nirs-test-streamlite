@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from scipy.signal import butter, filtfilt
 import fitdecode
+import matplotlib.pyplot as plt
 import plotly.express as px
 
 # Função para aplicar o filtro Butterworth
@@ -27,21 +28,22 @@ def load_file(file):
         st.error("Formato de arquivo não suportado. Use '.csv' ou '.fit'.")
         return None
 
-# Função para detectar colunas relevantes
+# Função para detectar colunas
 def detect_columns(df):
     column_map = {}
     for col in df.columns:
         col_lower = col.lower()
         if 'smo2' in col_lower:
             column_map['SmO2'] = col
+        elif 'thb' in col_lower:
+            column_map['THb'] = col
         elif 'power' in col_lower:
             column_map['Power'] = col
         elif 'heart_rate' in col_lower or 'hr' in col_lower:
             column_map['HR'] = col
-    required_columns = {'SmO2', 'Power', 'HR'}
-    if not required_columns.issubset(column_map):
-        missing = required_columns - set(column_map.keys())
-        st.error(f"As colunas necessárias {missing} não foram encontradas no DataFrame.")
+    required_columns = {'SmO2', 'THb', 'Power', 'HR'}
+    if not required_columns.issubset(column_map.keys()):
+        st.warning(f"As colunas necessárias não foram encontradas: {required_columns - set(column_map.keys())}")
     return column_map
 
 # Interface do Streamlit
@@ -62,16 +64,16 @@ if uploaded_file:
         # Detectar colunas automaticamente
         column_map = detect_columns(df)
 
-        # Aplicar filtros com valores pré-definidos
-        st.write("### Filtros Aplicados")
-        cutoff_values = {"SmO2": 0.1, "Power": 0.1, "HR": 0.1}
-        for col_key, cutoff in cutoff_values.items():
+        # Configurações padrão para filtros
+        st.write("### Filtros Automáticos")
+        default_cutoff = {"SmO2": 0.1, "THb": 0.2, "Power": 0.1, "HR": 0.1}
+        for col_key, cutoff in default_cutoff.items():
             if col_key in column_map:
                 col_name = column_map[col_key]
                 df[f"{col_name}_filtered"] = butterworth_filter(df[col_name].interpolate(), cutoff=cutoff)
-                st.write(f"Filtro Butterworth aplicado em **{col_name}** (Frequência de corte: {cutoff})")
+                st.write(f"Filtro Butterworth aplicado em **{col_name}** com frequência de corte {cutoff} Hz.")
 
-        # Opção para visualizar gráficos
+        # Gráficos interativos
         st.write("### Visualizar Gráficos")
         selected_col = st.selectbox("Selecione uma coluna para visualizar:", list(column_map.keys()))
         if selected_col:
@@ -80,6 +82,6 @@ if uploaded_file:
             st.plotly_chart(fig)
 
         # Download dos dados processados
-        st.write("### Baixar Dados Filtrados")
+        st.write("### Baixar Dados Processados")
         csv = df.to_csv(index=False).encode('utf-8')
         st.download_button("Baixar CSV Filtrado", data=csv, file_name="dados_filtrados.csv", mime="text/csv")
