@@ -14,7 +14,7 @@ def butterworth_filter(data, cutoff=0.1, fs=1.0, order=2):
     b, a = butter(order, normal_cutoff, btype='low', analog=False)
     return filtfilt(b, a, data)
 
-# Função para carregar arquivos
+# Função para carregar arquivos .fit
 def load_file(file):
     if file.name.endswith('.csv'):
         return pd.read_csv(file)
@@ -22,8 +22,8 @@ def load_file(file):
         data = []
         with fitdecode.FitReader(file) as fitfile:
             for frame in fitfile:
-                if frame.frame_type == fitdecode.FIT_FRAME_DATA:
-                    data.append(frame.get_values())
+                if isinstance(frame, fitdecode.records.FitDataMessage):  # Verifique se é do tipo DATA
+                    data.append({field.name: field.value for field in frame.fields})
         return pd.DataFrame(data)
     else:
         st.error("Formato de arquivo não suportado. Use '.csv' ou '.fit'.")
