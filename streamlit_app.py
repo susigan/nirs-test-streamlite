@@ -25,14 +25,10 @@ def load_file(file):
         try:
             with fitdecode.FitReader(file) as fitfile:
                 for frame in fitfile:
-                    if isinstance(frame, fitdecode.records.FitDataMessage):  # Processar apenas mensagens de dados
+                    if isinstance(frame, fitdecode.records.FitDataMessage):
                         record = {field.name: field.value for field in frame.fields}
                         data.append(record)
-            if data:
-                return pd.DataFrame(data)
-            else:
-                st.error("Nenhum dado encontrado no arquivo .fit.")
-                return None
+            return pd.DataFrame(data) if data else None
         except Exception as e:
             st.error(f"Erro ao processar o arquivo .fit: {e}")
             return None
@@ -86,81 +82,62 @@ if uploaded_file:
             default=list(column_map.values())
         )
 
-        # Slider para selecionar intervalo de tempo
-        st.write("### Selecione o Intervalo de Tempo para Análise")
         # Ajustar a coluna de tempo
-st.write("### Selecione o Intervalo de Tempo para Análise")
+        st.write("### Selecione o Intervalo de Tempo para Análise")
+        if "time" in df.columns:
+            time_column = df["time"]
+        else:
+            st.warning("Coluna 'time' não encontrada. Por favor, selecione uma coluna para usar como tempo.")
+            time_column_name = st.selectbox("Selecione a coluna de tempo:", df.columns.tolist())
+            time_column = df[time_column_name]
 
-# Verificar se existe uma coluna chamada "time"
-if "time" in df.columns:
-    time_column = df["time"]
-else:
-    st.warning("Coluna 'time' não encontrada. Por favor, selecione uma coluna para usar como eixo X (tempo).")
-    time_column = st.selectbox(
-        "Selecione a coluna para usar como tempo (eixo X):",
-        df.columns.tolist()
-    )
-    time_column = df[time_column]  # Obter os valores correspondentes
+        # Converter para datetime se necessário
+        try:
+            time_column = pd.to_datetime(time_column, errors='coerce')
+            time_column = (time_column - time_column.min()).dt.total_seconds()
+        except Exception:
+            st.error("A coluna de tempo selecionada não pôde ser processada. Certifique-se de que é válida.")
+            st.stop()
 
-# Verificar se os valores da coluna de tempo são válidos
-if time_column.isnull().all() or not np.issubdtype(time_column.dtype, np.number):
-    st.error("A coluna selecionada para o tempo é inválida. Certifique-se de selecionar uma coluna numérica ou válida.")
-else:
-    # Criar o slider de tempo com valores mínimos e máximos válidos
-    min_time, max_time = st.slider(
-        "Intervalo de Tempo",
-        min_value=int(time_column.min()),
-        max_value=int(time_column.max()),
-        value=(int(time_column.min()), int(time_column.max()))
-    )
-
-    # Filtrar os dados com base no intervalo selecionado
-    df_filtered = df[(time_column >= min_time) & (time_column <= max_time)]
-
-    # Mostrar os dados filtrados (opcional)
-    st.write("Dados filtrados com base no intervalo selecionado:")
-    st.dataframe(df_filtered.head())
-
+        # Criar o slider para o intervalo de tempo
+        min_time, max_time = int(time_column.min()), int(time_column.max())
+        start_time, end_time = st.slider(
+            "Intervalo de Tempo",
+            min_value=min_time,
+            max_value=max_time,
+            value=(min_time, max_time)
         )
 
-        # Filtrar dados no intervalo selecionado
-        df_filtered = df[(time_column >= min_time) & (time_column <= max_time)]
+        # Filtrar os dados no intervalo de tempo
+        df_filtered = df[(time_column >= start_time) & (time_column <= end_time)]
 
-        # Mostrar gráfico com colunas selecionadas antes do filtro
+        # Gráfico antes do filtro
         st.write("### Gráfico Antes do Filtro")
         fig = go.Figure()
         for col in selected_columns:
-            fig.add_trace(go.Scatter(x=df_filtered.index, y=df_filtered[col], mode='lines', name=col))
-        
-        fig.update_layout(
-            xaxis=dict(title="Tempo"),
-            title="Gráfico Antes do Filtro",
-            legend=dict(orientation="h")
-        )
+            fig.add_trace(go.Scatter(x=time_column, y=df_filtered[col], mode='lines', name=col))
+        fig.update_layout(title="Gráfico Antes do Filtro", xaxis_title="Tempo (segundos)", yaxis_title="Valores")
         st.plotly_chart(fig)
 
-        # Filtros
+        # Aplicar filtros
         st.write("### Aplicar Filtros")
         default_cutoff = {"SmO2": 0.1, "THb": 0.2, "Power": 0.1, "HR": 0.1}
         filtered_columns = {}
         for col in selected_columns:
-            cutoff = default_cutoff.get(col, 0.1)  # Frequência padrão para novas colunas
-            if col in df.columns:
-                filtered_col_name = f"{col}_filtered"
-                df_filtered[filtered_col_name] = butterworth_filter(df_filtered[col].interpolate(), cutoff=cutoff)
-                filtered_columns[col] = filtered_col_name
-                st.write(f"Filtro Butterworth aplicado em **{col}** (Frequência de corte: {cutoff} Hz).")
+            cutoff = default_cutoff.get(col, 0.1)
+            filtered_col_name = f"{col}_filtered"
+            df_filtered[filtered_col_name] = butterworth_filter(df_filtered[col].interpolate(), cutoff=cutoff)
+            filtered_columns[col] = filtered_col_name
+            st.write(f"Filtro Butterworth aplicado em **{col}** (Frequência de corte: {cutoff} Hz).")
 
-        # Gráficos interativos pós-filtro
-        st.write("### Visualizar Gráficos Pós-Filtro")
-        selected_col = st.selectbox("Selecione uma coluna para visualizar:", filtered_columns.keys())
-        if selected_col:
-            filtered_col_name = filtered_columns[selected_col]
-            fig_filtered = go.Figure()
-            fig_filtered.add_trace(go.Scatter(x=df_filtered.index, y=df_filtered[selected_col], mode='lines', name="Original"))
-            fig_filtered.add_trace(go.Scatter(x=df_filtered.index, y=df_filtered[filtered_col_name], mode='lines', name="Filtrado"))
-            fig_filtered.update_layout(title=f"Gráfico de {selected_col} Pós-Filtro")
-            st.plotly_chart(fig_filtered)
+        # Gráfico pós-filtro
+        st.write("### Gráfico Pós-Filtro")
+        fig_filtered = go.Figure()
+        for col, filtered_col in filtered_columns.items():
+            fig_filtered.add_trace(go.Scatter(x=time_column, y=df_filtered[col], mode='lines', name=f"{col} Original"))
+            fig_filtered.add_trace(go.Scatter(x=time_column, y=df_filtered[filtered_col], mode='lines', name=f"{col} Filtrado"))
+        fig_filtered.update_layout(title="Gráfico Pós-Filtro", xaxis_title="Tempo (segundos)", yaxis_title="Valores")
+        st.plotly_chart(fig_filtered)
 
         # Download dos dados processados
         st.write("### Baixar Dados Processados")
