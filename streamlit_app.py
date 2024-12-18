@@ -82,6 +82,9 @@ if uploaded_file:
             time_column = pd.to_datetime(df[time_columns[0]], errors="coerce")
             time_column = (time_column - time_column.min()).dt.total_seconds()
 
+        # Limpar valores nulos
+        time_column = time_column.dropna()
+
         # Intervalo de tempo inicial
         min_time, max_time = st.slider(
             "Intervalo de Tempo para Visualização",
@@ -111,18 +114,6 @@ if uploaded_file:
             if col_key in column_map:
                 col_name = column_map[col_key]
                 df_filtered[f"{col_name}_filtered"] = butterworth_filter(df_filtered[col_name].interpolate(), cutoff=cutoff)
-
-        # Gráfico filtrado
-        st.write("### Gráfico Filtrado")
-        fig_filtered = go.Figure()
-        for col_key, col_name in column_map.items():
-            if f"{col_name}_filtered" in df_filtered.columns:
-                fig_filtered.add_trace(go.Scatter(
-                    x=time_column, y=df_filtered[f"{col_name}_filtered"],
-                    mode='lines', name=f"{col_key} (Filtrado)"
-                ))
-        fig_filtered.update_layout(title="Dados Após Aplicar Filtro", xaxis=dict(title="Tempo (segundos)"))
-        st.plotly_chart(fig_filtered)
 
         # Steps de Trabalho e Descanso
         st.write("### Configurar Steps de Trabalho e Descanso")
