@@ -88,12 +88,39 @@ if uploaded_file:
 
         # Slider para selecionar intervalo de tempo
         st.write("### Selecione o Intervalo de Tempo para Análise")
-        time_column = df.index if "time" not in df.columns else df["time"]
-        min_time, max_time = st.slider(
-            "Intervalo de Tempo",
-            min_value=int(time_column.min()),
-            max_value=int(time_column.max()),
-            value=(int(time_column.min()), int(time_column.max()))
+        # Ajustar a coluna de tempo
+st.write("### Selecione o Intervalo de Tempo para Análise")
+
+# Verificar se existe uma coluna chamada "time"
+if "time" in df.columns:
+    time_column = df["time"]
+else:
+    st.warning("Coluna 'time' não encontrada. Por favor, selecione uma coluna para usar como eixo X (tempo).")
+    time_column = st.selectbox(
+        "Selecione a coluna para usar como tempo (eixo X):",
+        df.columns.tolist()
+    )
+    time_column = df[time_column]  # Obter os valores correspondentes
+
+# Verificar se os valores da coluna de tempo são válidos
+if time_column.isnull().all() or not np.issubdtype(time_column.dtype, np.number):
+    st.error("A coluna selecionada para o tempo é inválida. Certifique-se de selecionar uma coluna numérica ou válida.")
+else:
+    # Criar o slider de tempo com valores mínimos e máximos válidos
+    min_time, max_time = st.slider(
+        "Intervalo de Tempo",
+        min_value=int(time_column.min()),
+        max_value=int(time_column.max()),
+        value=(int(time_column.min()), int(time_column.max()))
+    )
+
+    # Filtrar os dados com base no intervalo selecionado
+    df_filtered = df[(time_column >= min_time) & (time_column <= max_time)]
+
+    # Mostrar os dados filtrados (opcional)
+    st.write("Dados filtrados com base no intervalo selecionado:")
+    st.dataframe(df_filtered.head())
+
         )
 
         # Filtrar dados no intervalo selecionado
