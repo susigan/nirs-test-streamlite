@@ -80,29 +80,32 @@ if uploaded_file:
         # Seleção da coluna de tempo
         st.write("### Selecione o Intervalo de Tempo para Análise")
 
-        # Procurar colunas que começam com "time"
-        time_columns = [col for col in df.columns if col.lower().startswith("time")]
+        # Procurar colunas que começam com "time" ou "timestamp"
+        time_columns = [col for col in df.columns if "time" in col.lower() or "timestamp" in col.lower()]
 
         if not time_columns:
-            st.error("Nenhuma coluna com o nome 'time' ou que começa com 'time' foi encontrada.")
+            st.error("Nenhuma coluna com o nome 'time' ou 'timestamp' foi encontrada.")
             st.stop()
         else:
-            # Sugere a primeira coluna encontrada, mas permite que o usuário escolha outra
-            selected_time_column = st.selectbox(
-                "Selecione a coluna para usar como tempo (eixo X):",
-                time_columns,
-                index=0  # Define a primeira coluna como padrão
-            )
-            time_column = df[selected_time_column]
-
-        # Verificar se os valores da coluna de tempo são válidos
-        try:
-            if time_column.isnull().all() or not pd.api.types.is_numeric_dtype(time_column):
-                st.error("A coluna selecionada para o tempo é inválida. Certifique-se de selecionar uma coluna numérica ou válida.")
+            # Usar automaticamente a primeira coluna encontrada
+            time_column_name = time_columns[0]
+            time_column = df[time_column_name]
+            st.write(f"Coluna de tempo detectada: **{time_column_name}**")
+            
+            # Verificar se a coluna contém data e hora combinadas
+            if pd.api.types.is_string_dtype(time_column):
+                try:
+                    # Converter strings de data e hora para objetos datetime
+                    time_column = pd.to_datetime(time_column)
+                    # Extrair apenas o tempo em segundos
+                    time_column = time_column.dt.hour * 3600 + time_column.dt.minute * 60 + time_column.dt.second
+                    st.success(f"Coluna de tempo processada e convertida para segundos.")
+                except Exception as e:
+                    st.error(f"Erro ao processar a coluna de tempo: {e}")
+                    st.stop()
+            elif not pd.api.types.is_numeric_dtype(time_column):
+                st.error("A coluna selecionada para o tempo não é numérica nem uma string válida de data e hora.")
                 st.stop()
-        except Exception as e:
-            st.error(f"Erro ao validar a coluna de tempo: {e}")
-            st.stop()
 
         # Criar o slider de tempo com valores mínimos e máximos válidos
         min_time, max_time = st.slider(
