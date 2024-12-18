@@ -81,18 +81,19 @@ if uploaded_file:
         else:
             time_column = pd.to_datetime(df[time_columns[0]], errors="coerce")
             time_column = (time_column - time_column.min()).dt.total_seconds()
-
-        # Limpar valores nulos
-        time_column = time_column.dropna()
+            time_column = time_column.dropna().astype(int)  # Garantir valores numéricos inteiros
 
         # Intervalo de tempo inicial
-        min_time, max_time = st.slider(
+        min_time, max_time = int(time_column.min()), int(time_column.max())
+        time_slider = st.slider(
             "Intervalo de Tempo para Visualização",
-            min_value=int(time_column.min()),
-            max_value=int(time_column.max()),
-            value=(int(time_column.min()), int(time_column.max()))
+            min_value=min_time,
+            max_value=max_time,
+            value=(min_time, max_time)
         )
-        df_filtered = df[(time_column >= min_time) & (time_column <= max_time)]
+
+        # Filtrar dados
+        df_filtered = df[(time_column >= time_slider[0]) & (time_column <= time_slider[1])]
 
         # Gráfico inicial para visualização
         st.write("### Gráfico Antes do Filtro")
@@ -133,16 +134,16 @@ if uploaded_file:
 
         if work_seconds and rest_seconds:
             steps = []
-            current_time = min_time
+            current_time = time_slider[0]
             step_counter = 1
-            while current_time < max_time:
-                work_end = min(current_time + work_seconds, max_time)
+            while current_time < time_slider[1]:
+                work_end = min(current_time + work_seconds, time_slider[1])
                 steps.append({"Step": step_counter, "Type": "Trabalho", "Start": current_time, "End": work_end})
                 current_time = work_end
                 step_counter += 1
 
-                rest_end = min(current_time + rest_seconds, max_time)
-                if current_time < max_time:
+                rest_end = min(current_time + rest_seconds, time_slider[1])
+                if current_time < time_slider[1]:
                     steps.append({"Step": step_counter, "Type": "Descanso", "Start": current_time, "End": rest_end})
                     current_time = rest_end
                     step_counter += 1
