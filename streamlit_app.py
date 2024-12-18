@@ -28,11 +28,7 @@ def load_file(file):
                     if isinstance(frame, fitdecode.records.FitDataMessage):
                         record = {field.name: field.value for field in frame.fields}
                         data.append(record)
-            if data:
-                return pd.DataFrame(data)
-            else:
-                st.error("Nenhum dado encontrado no arquivo .fit.")
-                return None
+            return pd.DataFrame(data) if data else None
         except Exception as e:
             st.error(f"Erro ao processar o arquivo .fit: {e}")
             return None
@@ -72,50 +68,61 @@ if uploaded_file:
         st.write("Prévia dos dados:")
         st.dataframe(df.head())
 
-        # Detectar colunas automaticamente
+        # Detectar colunas importantes
         column_map = detect_columns(df)
         st.write("### Colunas Detectadas:")
         st.write(column_map)
 
-        # Procurar colunas de tempo
+        # Selecionar a coluna de tempo
         time_columns = [col for col in df.columns if "time" in col.lower() or "timestamp" in col.lower()]
         if not time_columns:
             st.error("Nenhuma coluna com o nome 'time' ou 'timestamp' foi encontrada.")
             st.stop()
         else:
-            if "timestamp" in [col.lower() for col in time_columns]:
-                time_column_name = next(col for col in time_columns if col.lower() == "timestamp")
-            else:
-                time_column_name = time_columns[0]
-            
-            time_column = df[time_column_name]
-            st.write(f"Coluna de tempo detectada: **{time_column_name}**")
+            time_column = pd.to_datetime(df[time_columns[0]], errors="coerce")
+            time_column = (time_column - time_column.min()).dt.total_seconds()
 
-            if pd.api.types.is_string_dtype(time_column):
-                time_column = pd.to_datetime(time_column)
-                time_column = (time_column - time_column.min()).dt.total_seconds()
-            elif not pd.api.types.is_numeric_dtype(time_column):
-                st.error("A coluna de tempo não é numérica nem válida.")
-                st.stop()
-
-        # Slider para intervalo de tempo
+        # Intervalo de tempo inicial
         min_time, max_time = st.slider(
-            "Intervalo de Tempo",
+            "Intervalo de Tempo para Visualização",
             min_value=int(time_column.min()),
             max_value=int(time_column.max()),
             value=(int(time_column.min()), int(time_column.max()))
         )
         df_filtered = df[(time_column >= min_time) & (time_column <= max_time)]
 
+        # Gráfico inicial para visualização
+        st.write("### Gráfico Antes do Filtro")
+        fig_initial = go.Figure()
+        for key, col in column_map.items():
+            fig_initial.add_trace(go.Scatter(x=time_column, y=df_filtered[col], mode='lines', name=key))
+
+        fig_initial.update_layout(
+            xaxis=dict(title="Tempo (segundos)"),
+            yaxis=dict(title="Valores"),
+            title="Dados Selecionados Antes do Filtro"
+        )
+        st.plotly_chart(fig_initial)
+
         # Aplicar Filtros
         st.write("### Aplicar Filtros")
         default_cutoff = {"SmO2": 0.1, "THB": 0.2, "Power": 0.1, "HR": 0.1}
-        filtered_columns = {}
         for col_key, cutoff in default_cutoff.items():
             if col_key in column_map:
                 col_name = column_map[col_key]
                 df_filtered[f"{col_name}_filtered"] = butterworth_filter(df_filtered[col_name].interpolate(), cutoff=cutoff)
-                filtered_columns[col_key] = f"{col_name}_filtered"
+
+        # Gráfico filtrado
+        st.write("### Gráfico Filtrado")
+        fig_filtered = go.Figure()
+        for col_key, col_name in column_map.items():
+            if f"{col_name}_filtered" in df_filtered.columns:
+                fig_filtered.add_trace(go.Scatter(
+                    x=time_column, y=df_filtered[f"{col_name}_filtered"],
+                    mode='lines', name=f"{col_key} (Filtrado)"
+                ))
+        fig_filtered.update_layout(title="Dados Após Aplicar Filtro", xaxis=dict(title="Tempo (segundos)"))
+        st.plotly_chart(fig_filtered)
 
         # Steps de Trabalho e Descanso
         st.write("### Configurar Steps de Trabalho e Descanso")
@@ -149,15 +156,17 @@ if uploaded_file:
                     current_time = rest_end
                     step_counter += 1
 
-            st.write("### Tabela de Steps")
-            steps_df = pd.DataFrame(steps)
-            st.dataframe(steps_df)
-
-            # Gráfico com Steps
             st.write("### Gráfico com Steps")
             fig_steps = go.Figure()
 
-            # Retângulos dos Steps
+            # Adicionar dados filtrados
+            for col_key, col_name in column_map.items():
+                if f"{col_name}_filtered" in df_filtered.columns:
+                    fig_steps.add_trace(go.Scatter(
+                        x=time_column, y=df_filtered[f"{col_name}_filtered"], mode='lines', name=f"{col_key} (Filtrado)"
+                    ))
+
+            # Adicionar Steps
             for step in steps:
                 fig_steps.add_vrect(
                     x0=step["Start"], x1=step["End"],
@@ -166,20 +175,5 @@ if uploaded_file:
                     annotation_text=step["Type"], annotation_position="top left"
                 )
 
-            # Adicionar dados filtrados
-            for col_key, col_name in filtered_columns.items():
-                fig_steps.add_trace(go.Scatter(
-                    x=time_column, y=df_filtered[col_name], mode='lines', name=col_key
-                ))
-
-            fig_steps.update_layout(
-                xaxis=dict(title="Tempo (segundos)", range=[min_time, max_time]),
-                yaxis=dict(title="Valores"),
-                title="Gráfico com Steps de Trabalho e Descanso",
-                legend=dict(orientation="h")
-            )
+            fig_steps.update_layout(title="Gráfico com Steps de Trabalho e Descanso", xaxis=dict(title="Tempo (segundos)"))
             st.plotly_chart(fig_steps)
-
-        st.write("### Baixar Dados Processados")
-        csv = df_filtered.to_csv(index=False).encode('utf-8')
-        st.download_button("Baixar CSV Filtrado", data=csv, file_name="dados_filtrados.csv", mime="text/csv")
