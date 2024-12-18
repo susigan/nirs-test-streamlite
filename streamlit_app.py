@@ -15,27 +15,14 @@ def butterworth_filter(data, cutoff=0.1, fs=1.0, order=2):
 # Função para carregar arquivo .fit ou .csv
 def load_file(file):
     if file.name.endswith('.csv'):
-        try:
-            return pd.read_csv(file)
-        except Exception as e:
-            st.error(f"Erro ao processar o arquivo .csv: {e}")
-            return None
+        return pd.read_csv(file)
     elif file.name.endswith('.fit'):
         data = []
-        try:
-            with fitdecode.FitReader(file) as fitfile:
-                for frame in fitfile:
-                    if isinstance(frame, fitdecode.records.FitDataMessage):  # Processar apenas mensagens de dados
-                        record = {field.name: field.value for field in frame.fields}
-                        data.append(record)
-            if data:
-                return pd.DataFrame(data)
-            else:
-                st.error("Nenhum dado encontrado no arquivo .fit.")
-                return None
-        except Exception as e:
-            st.error(f"Erro ao processar o arquivo .fit: {e}")
-            return None
+        with fitdecode.FitReader(file) as fitfile:
+            for frame in fitfile:
+                if isinstance(frame, fitdecode.records.FitDataMessage):
+                    data.append({field.name: field.value for field in frame.fields})
+        return pd.DataFrame(data)
     else:
         st.error("Formato de arquivo não suportado. Use '.csv' ou '.fit'.")
         return None
@@ -74,66 +61,38 @@ if uploaded_file:
 
         # Detectar colunas automaticamente
         column_map = detect_columns(df)
-        st.write("### Colunas Pré-Selecionadas:")
+        st.write("### Colunas Detectadas:")
         st.write(column_map)
-
-        # Seleção de colunas pelo usuário
-        st.write("### Selecione as Colunas para Análise")
-        available_columns = df.columns.tolist()
-        selected_columns = st.multiselect(
-            "Escolha as colunas para incluir na análise:", 
-            available_columns, 
-            default=list(column_map.values())
-        )
 
         # Slider para selecionar intervalo de tempo
         st.write("### Selecione o Intervalo de Tempo para Análise")
-        # Ajustar a coluna de tempo
-st.write("### Selecione o Intervalo de Tempo para Análise")
-
-# Verificar se existe uma coluna chamada "time"
-if "time" in df.columns:
-    time_column = df["time"]
-else:
-    st.warning("Coluna 'time' não encontrada. Por favor, selecione uma coluna para usar como eixo X (tempo).")
-    time_column = st.selectbox(
-        "Selecione a coluna para usar como tempo (eixo X):",
-        df.columns.tolist()
-    )
-    time_column = df[time_column]  # Obter os valores correspondentes
-
-# Verificar se os valores da coluna de tempo são válidos
-if time_column.isnull().all() or not np.issubdtype(time_column.dtype, np.number):
-    st.error("A coluna selecionada para o tempo é inválida. Certifique-se de selecionar uma coluna numérica ou válida.")
-else:
-    # Criar o slider de tempo com valores mínimos e máximos válidos
-    min_time, max_time = st.slider(
-        "Intervalo de Tempo",
-        min_value=int(time_column.min()),
-        max_value=int(time_column.max()),
-        value=(int(time_column.min()), int(time_column.max()))
-    )
-
-    # Filtrar os dados com base no intervalo selecionado
-    df_filtered = df[(time_column >= min_time) & (time_column <= max_time)]
-
-    # Mostrar os dados filtrados (opcional)
-    st.write("Dados filtrados com base no intervalo selecionado:")
-    st.dataframe(df_filtered.head())
-
+        time_column = df.index if "time" not in df.columns else df["time"]
+        min_time, max_time = st.slider(
+            "Intervalo de Tempo",
+            min_value=int(time_column.min()),
+            max_value=int(time_column.max()),
+            value=(int(time_column.min()), int(time_column.max()))
         )
 
         # Filtrar dados no intervalo selecionado
         df_filtered = df[(time_column >= min_time) & (time_column <= max_time)]
 
-        # Mostrar gráfico com colunas selecionadas antes do filtro
+        # Mostrar gráfico com Power, SmO2 e HR antes do filtro
         st.write("### Gráfico Antes do Filtro")
         fig = go.Figure()
-        for col in selected_columns:
-            fig.add_trace(go.Scatter(x=df_filtered.index, y=df_filtered[col], mode='lines', name=col))
+        if "Power" in column_map:
+            fig.add_trace(go.Scatter(x=df_filtered.index, y=df_filtered[column_map["Power"]], mode='lines', name="Power (Y1)", yaxis="y1"))
+        if "SmO2" in column_map:
+            fig.add_trace(go.Scatter(x=df_filtered.index, y=df_filtered[column_map["SmO2"]], mode='lines', name="SmO2 (Y2)", yaxis="y2"))
+        if "HR" in column_map:
+            fig.add_trace(go.Scatter(x=df_filtered.index, y=df_filtered[column_map["HR"]], mode='lines', name="HR (Y3)", yaxis="y3"))
         
+        # Configurações dos eixos do gráfico
         fig.update_layout(
             xaxis=dict(title="Tempo"),
+            yaxis=dict(title="Power (Y1)", side="left"),
+            yaxis2=dict(title="SmO2 (Y2)", overlaying="y", side="right"),
+            yaxis3=dict(title="HR (Y3)", anchor="free", position=0.85),
             title="Gráfico Antes do Filtro",
             legend=dict(orientation="h")
         )
@@ -143,13 +102,12 @@ else:
         st.write("### Aplicar Filtros")
         default_cutoff = {"SmO2": 0.1, "THb": 0.2, "Power": 0.1, "HR": 0.1}
         filtered_columns = {}
-        for col in selected_columns:
-            cutoff = default_cutoff.get(col, 0.1)  # Frequência padrão para novas colunas
-            if col in df.columns:
-                filtered_col_name = f"{col}_filtered"
-                df_filtered[filtered_col_name] = butterworth_filter(df_filtered[col].interpolate(), cutoff=cutoff)
-                filtered_columns[col] = filtered_col_name
-                st.write(f"Filtro Butterworth aplicado em **{col}** (Frequência de corte: {cutoff} Hz).")
+        for col_key, cutoff in default_cutoff.items():
+            if col_key in column_map:
+                col_name = column_map[col_key]
+                df_filtered[f"{col_name}_filtered"] = butterworth_filter(df_filtered[col_name].interpolate(), cutoff=cutoff)
+                filtered_columns[col_key] = f"{col_name}_filtered"
+                st.write(f"Filtro Butterworth aplicado em **{col_name}** (Frequência de corte: {cutoff} Hz).")
 
         # Gráficos interativos pós-filtro
         st.write("### Visualizar Gráficos Pós-Filtro")
@@ -157,7 +115,7 @@ else:
         if selected_col:
             filtered_col_name = filtered_columns[selected_col]
             fig_filtered = go.Figure()
-            fig_filtered.add_trace(go.Scatter(x=df_filtered.index, y=df_filtered[selected_col], mode='lines', name="Original"))
+            fig_filtered.add_trace(go.Scatter(x=df_filtered.index, y=df_filtered[column_map[selected_col]], mode='lines', name="Original"))
             fig_filtered.add_trace(go.Scatter(x=df_filtered.index, y=df_filtered[filtered_col_name], mode='lines', name="Filtrado"))
             fig_filtered.update_layout(title=f"Gráfico de {selected_col} Pós-Filtro")
             st.plotly_chart(fig_filtered)
