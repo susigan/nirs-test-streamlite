@@ -61,8 +61,17 @@ if uploaded_file:
 
         # Detectar colunas automaticamente
         column_map = detect_columns(df)
-        st.write("### Colunas Detectadas:")
+        st.write("### Colunas Pré-Selecionadas:")
         st.write(column_map)
+
+        # Seleção de colunas pelo usuário
+        st.write("### Selecione as Colunas para Análise")
+        available_columns = df.columns.tolist()
+        selected_columns = st.multiselect(
+            "Escolha as colunas para incluir na análise:", 
+            available_columns, 
+            default=list(column_map.values())
+        )
 
         # Slider para selecionar intervalo de tempo
         st.write("### Selecione o Intervalo de Tempo para Análise")
@@ -77,22 +86,14 @@ if uploaded_file:
         # Filtrar dados no intervalo selecionado
         df_filtered = df[(time_column >= min_time) & (time_column <= max_time)]
 
-        # Mostrar gráfico com Power, SmO2 e HR antes do filtro
+        # Mostrar gráfico com colunas selecionadas antes do filtro
         st.write("### Gráfico Antes do Filtro")
         fig = go.Figure()
-        if "Power" in column_map:
-            fig.add_trace(go.Scatter(x=df_filtered.index, y=df_filtered[column_map["Power"]], mode='lines', name="Power (Y1)", yaxis="y1"))
-        if "SmO2" in column_map:
-            fig.add_trace(go.Scatter(x=df_filtered.index, y=df_filtered[column_map["SmO2"]], mode='lines', name="SmO2 (Y2)", yaxis="y2"))
-        if "HR" in column_map:
-            fig.add_trace(go.Scatter(x=df_filtered.index, y=df_filtered[column_map["HR"]], mode='lines', name="HR (Y3)", yaxis="y3"))
+        for col in selected_columns:
+            fig.add_trace(go.Scatter(x=df_filtered.index, y=df_filtered[col], mode='lines', name=col))
         
-        # Configurações dos eixos do gráfico
         fig.update_layout(
             xaxis=dict(title="Tempo"),
-            yaxis=dict(title="Power (Y1)", side="left"),
-            yaxis2=dict(title="SmO2 (Y2)", overlaying="y", side="right"),
-            yaxis3=dict(title="HR (Y3)", anchor="free", position=0.85),
             title="Gráfico Antes do Filtro",
             legend=dict(orientation="h")
         )
@@ -102,12 +103,13 @@ if uploaded_file:
         st.write("### Aplicar Filtros")
         default_cutoff = {"SmO2": 0.1, "THb": 0.2, "Power": 0.1, "HR": 0.1}
         filtered_columns = {}
-        for col_key, cutoff in default_cutoff.items():
-            if col_key in column_map:
-                col_name = column_map[col_key]
-                df_filtered[f"{col_name}_filtered"] = butterworth_filter(df_filtered[col_name].interpolate(), cutoff=cutoff)
-                filtered_columns[col_key] = f"{col_name}_filtered"
-                st.write(f"Filtro Butterworth aplicado em **{col_name}** (Frequência de corte: {cutoff} Hz).")
+        for col in selected_columns:
+            cutoff = default_cutoff.get(col, 0.1)  # Frequência padrão para novas colunas
+            if col in df.columns:
+                filtered_col_name = f"{col}_filtered"
+                df_filtered[filtered_col_name] = butterworth_filter(df_filtered[col].interpolate(), cutoff=cutoff)
+                filtered_columns[col] = filtered_col_name
+                st.write(f"Filtro Butterworth aplicado em **{col}** (Frequência de corte: {cutoff} Hz).")
 
         # Gráficos interativos pós-filtro
         st.write("### Visualizar Gráficos Pós-Filtro")
@@ -115,7 +117,7 @@ if uploaded_file:
         if selected_col:
             filtered_col_name = filtered_columns[selected_col]
             fig_filtered = go.Figure()
-            fig_filtered.add_trace(go.Scatter(x=df_filtered.index, y=df_filtered[column_map[selected_col]], mode='lines', name="Original"))
+            fig_filtered.add_trace(go.Scatter(x=df_filtered.index, y=df_filtered[selected_col], mode='lines', name="Original"))
             fig_filtered.add_trace(go.Scatter(x=df_filtered.index, y=df_filtered[filtered_col_name], mode='lines', name="Filtrado"))
             fig_filtered.update_layout(title=f"Gráfico de {selected_col} Pós-Filtro")
             st.plotly_chart(fig_filtered)
