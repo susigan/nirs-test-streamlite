@@ -15,14 +15,27 @@ def butterworth_filter(data, cutoff=0.1, fs=1.0, order=2):
 # Função para carregar arquivo .fit ou .csv
 def load_file(file):
     if file.name.endswith('.csv'):
-        return pd.read_csv(file)
+        try:
+            return pd.read_csv(file)
+        except Exception as e:
+            st.error(f"Erro ao processar o arquivo .csv: {e}")
+            return None
     elif file.name.endswith('.fit'):
         data = []
-        with fitdecode.FitReader(file) as fitfile:
-            for frame in fitfile:
-                if isinstance(frame, fitdecode.records.FitDataMessage):
-                    data.append({field.name: field.value for field in frame.fields})
-        return pd.DataFrame(data)
+        try:
+            with fitdecode.FitReader(file) as fitfile:
+                for frame in fitfile:
+                    if isinstance(frame, fitdecode.records.FitDataMessage):  # Processar apenas mensagens de dados
+                        record = {field.name: field.value for field in frame.fields}
+                        data.append(record)
+            if data:
+                return pd.DataFrame(data)
+            else:
+                st.error("Nenhum dado encontrado no arquivo .fit.")
+                return None
+        except Exception as e:
+            st.error(f"Erro ao processar o arquivo .fit: {e}")
+            return None
     else:
         st.error("Formato de arquivo não suportado. Use '.csv' ou '.fit'.")
         return None
@@ -64,9 +77,36 @@ if uploaded_file:
         st.write("### Colunas Detectadas:")
         st.write(column_map)
 
+        # Procurar colunas que contenham 'time' ou 'timestamp'
+        time_columns = [col for col in df.columns if "time" in col.lower() or "timestamp" in col.lower()]
+
+        if not time_columns:
+            st.error("Nenhuma coluna com o nome 'time' ou 'timestamp' foi encontrada. Selecione outra coluna.")
+            st.stop()
+        else:
+            # Priorizar "timestamp" se disponível
+            if "timestamp" in [col.lower() for col in time_columns]:
+                time_column_name = next(col for col in time_columns if col.lower() == "timestamp")
+            else:
+                time_column_name = time_columns[0]  # Usar a primeira coluna detectada
+            
+            time_column = df[time_column_name]
+            st.write(f"Coluna de tempo detectada: **{time_column_name}**")
+            
+            # Verificar se a coluna contém data/hora e converter
+            if pd.api.types.is_string_dtype(time_column):
+                try:
+                    time_column = pd.to_datetime(time_column)
+                    time_column = (time_column - time_column.min()).dt.total_seconds()  # Converter para segundos
+                    st.success("Coluna de tempo processada e convertida para segundos.")
+                except Exception as e:
+                    st.error(f"Erro ao processar a coluna de tempo: {e}")
+                    st.stop()
+            elif not pd.api.types.is_numeric_dtype(time_column):
+                st.error("A coluna de tempo selecionada não é numérica ou válida.")
+                st.stop()
+
         # Slider para selecionar intervalo de tempo
-        st.write("### Selecione o Intervalo de Tempo para Análise")
-        time_column = df.index if "time" not in df.columns else df["time"]
         min_time, max_time = st.slider(
             "Intervalo de Tempo",
             min_value=int(time_column.min()),
@@ -81,24 +121,21 @@ if uploaded_file:
         st.write("### Gráfico Antes do Filtro")
         fig = go.Figure()
         if "Power" in column_map:
-            fig.add_trace(go.Scatter(x=df_filtered.index, y=df_filtered[column_map["Power"]], mode='lines', name="Power (Y1)", yaxis="y1"))
+            fig.add_trace(go.Scatter(x=time_column, y=df_filtered[column_map["Power"]], mode='lines', name="Power"))
         if "SmO2" in column_map:
-            fig.add_trace(go.Scatter(x=df_filtered.index, y=df_filtered[column_map["SmO2"]], mode='lines', name="SmO2 (Y2)", yaxis="y2"))
+            fig.add_trace(go.Scatter(x=time_column, y=df_filtered[column_map["SmO2"]], mode='lines', name="SmO2"))
         if "HR" in column_map:
-            fig.add_trace(go.Scatter(x=df_filtered.index, y=df_filtered[column_map["HR"]], mode='lines', name="HR (Y3)", yaxis="y3"))
-        
-        # Configurações dos eixos do gráfico
+            fig.add_trace(go.Scatter(x=time_column, y=df_filtered[column_map["HR"]], mode='lines', name="HR"))
+
+        # Configurações do gráfico
         fig.update_layout(
-            xaxis=dict(title="Tempo"),
-            yaxis=dict(title="Power (Y1)", side="left"),
-            yaxis2=dict(title="SmO2 (Y2)", overlaying="y", side="right"),
-            yaxis3=dict(title="HR (Y3)", anchor="free", position=0.85),
+            xaxis=dict(title="Tempo (segundos)"),
             title="Gráfico Antes do Filtro",
             legend=dict(orientation="h")
         )
         st.plotly_chart(fig)
 
-        # Filtros
+        # Aplicar Filtros
         st.write("### Aplicar Filtros")
         default_cutoff = {"SmO2": 0.1, "THb": 0.2, "Power": 0.1, "HR": 0.1}
         filtered_columns = {}
@@ -109,14 +146,14 @@ if uploaded_file:
                 filtered_columns[col_key] = f"{col_name}_filtered"
                 st.write(f"Filtro Butterworth aplicado em **{col_name}** (Frequência de corte: {cutoff} Hz).")
 
-        # Gráficos interativos pós-filtro
+        # Gráficos Pós-Filtro
         st.write("### Visualizar Gráficos Pós-Filtro")
         selected_col = st.selectbox("Selecione uma coluna para visualizar:", filtered_columns.keys())
         if selected_col:
             filtered_col_name = filtered_columns[selected_col]
             fig_filtered = go.Figure()
-            fig_filtered.add_trace(go.Scatter(x=df_filtered.index, y=df_filtered[column_map[selected_col]], mode='lines', name="Original"))
-            fig_filtered.add_trace(go.Scatter(x=df_filtered.index, y=df_filtered[filtered_col_name], mode='lines', name="Filtrado"))
+            fig_filtered.add_trace(go.Scatter(x=time_column, y=df_filtered[column_map[selected_col]], mode='lines', name="Original"))
+            fig_filtered.add_trace(go.Scatter(x=time_column, y=df_filtered[filtered_col_name], mode='lines', name="Filtrado"))
             fig_filtered.update_layout(title=f"Gráfico de {selected_col} Pós-Filtro")
             st.plotly_chart(fig_filtered)
 
