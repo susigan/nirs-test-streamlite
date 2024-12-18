@@ -3,7 +3,6 @@ import pandas as pd
 import numpy as np
 from scipy.signal import butter, filtfilt
 import fitdecode
-import matplotlib.pyplot as plt
 import plotly.express as px
 
 # Função para aplicar o filtro Butterworth
@@ -28,22 +27,21 @@ def load_file(file):
         st.error("Formato de arquivo não suportado. Use '.csv' ou '.fit'.")
         return None
 
-# Função para detectar colunas
+# Função para detectar colunas importantes
 def detect_columns(df):
+    known_columns = {
+        "SmO2": ["saturated_hemoglobin_percent", "SmO2"],
+        "THb": ["total_hemoglobin_con", "THb"],
+        "Power": ["power"],
+        "HR": ["heart_rate", "hr"]
+    }
     column_map = {}
-    for col in df.columns:
-        col_lower = col.lower()
-        if 'smo2' in col_lower:
-            column_map['SmO2'] = col
-        elif 'thb' in col_lower:
-            column_map['THb'] = col
-        elif 'power' in col_lower:
-            column_map['Power'] = col
-        elif 'heart_rate' in col_lower or 'hr' in col_lower:
-            column_map['HR'] = col
-    required_columns = {'SmO2', 'THb', 'Power', 'HR'}
-    if not required_columns.issubset(column_map.keys()):
-        st.warning(f"As colunas necessárias não foram encontradas: {required_columns - set(column_map.keys())}")
+    for key, possible_names in known_columns.items():
+        for name in possible_names:
+            matched_columns = [col for col in df.columns if name.lower() in col.lower()]
+            if matched_columns:
+                column_map[key] = matched_columns[0]
+                break
     return column_map
 
 # Interface do Streamlit
@@ -63,22 +61,45 @@ if uploaded_file:
 
         # Detectar colunas automaticamente
         column_map = detect_columns(df)
+        st.write("### Colunas Selecionadas Automaticamente:")
+        st.write(column_map)
+
+        # Mostrar todas as colunas disponíveis
+        st.write("### Todas as Colunas Disponíveis:")
+        st.write(df.columns.tolist())
+
+        # Permitir ao usuário adicionar colunas extras
+        additional_columns = st.multiselect(
+            "Selecione mais colunas para filtrar:", 
+            df.columns.tolist(), 
+            default=list(column_map.values())
+        )
 
         # Configurações padrão para filtros
         st.write("### Filtros Automáticos")
         default_cutoff = {"SmO2": 0.1, "THb": 0.2, "Power": 0.1, "HR": 0.1}
-        for col_key, cutoff in default_cutoff.items():
-            if col_key in column_map:
-                col_name = column_map[col_key]
-                df[f"{col_name}_filtered"] = butterworth_filter(df[col_name].interpolate(), cutoff=cutoff)
-                st.write(f"Filtro Butterworth aplicado em **{col_name}** com frequência de corte {cutoff} Hz.")
+        filtered_columns = {}
+
+        for col_name in additional_columns:
+            cutoff = default_cutoff.get(col_name, 0.1)  # Frequência padrão para novas colunas
+            if col_name in df.columns:
+                filtered_col_name = f"{col_name}_filtered"
+                df[filtered_col_name] = butterworth_filter(df[col_name].interpolate(), cutoff=cutoff)
+                filtered_columns[col_name] = filtered_col_name
+                st.write(f"Filtro Butterworth aplicado em **{col_name}** (Frequência de corte: {cutoff} Hz).")
 
         # Gráficos interativos
         st.write("### Visualizar Gráficos")
-        selected_col = st.selectbox("Selecione uma coluna para visualizar:", list(column_map.keys()))
+        selected_col = st.selectbox("Selecione uma coluna para visualizar:", filtered_columns.keys())
         if selected_col:
-            col_name = column_map[selected_col]
-            fig = px.line(df, x=df.index, y=[col_name, f"{col_name}_filtered"], labels={'value': 'Valores', 'index': 'Tempo'}, title=f"{selected_col} e {selected_col} Filtrado")
+            filtered_col_name = filtered_columns[selected_col]
+            fig = px.line(
+                df, 
+                x=df.index, 
+                y=[selected_col, filtered_col_name], 
+                labels={'value': 'Valores', 'index': 'Tempo'}, 
+                title=f"{selected_col} e {filtered_col_name}"
+            )
             st.plotly_chart(fig)
 
         # Download dos dados processados
